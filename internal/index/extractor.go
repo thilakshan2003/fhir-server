@@ -187,14 +187,41 @@ func (e *Extractor) appendParam(rs *RowSet, resourceType, resourceID string, res
 
 // ─── sp_string ────────────────────────────────────────────────────────────────
 
+// appendString buffers sp_string rows for a string search param. A plain string
+// becomes one row; a complex value (HumanName, Address) becomes one row per
+// text part listed in stringParts.
 func appendString(rs *RowSet, rt, rid, param string, vals []any) {
+	// add buffers one row, skipping empty strings.
+	add := func(s string) {
+		if s != "" {
+			rs.spString = append(rs.spString, []any{rs.tenant, rid, rt, param, s, strings.ToLower(s)})
+		}
+	}
 	for _, v := range vals {
-		s := asString(v)
-		if s == "" {
+		if m, ok := v.(map[string]any); ok {
+			// HumanName / Address: index each text part (family, given, city, ...)
+			// as its own row, so a search matches if any one part matches.
+			for _, k := range stringParts {
+				switch p := m[k].(type) {
+				case string:
+					add(p)
+				case []any:
+					for _, e := range p {
+						add(asString(e))
+					}
+				}
+			}
 			continue
 		}
-		rs.spString = append(rs.spString, []any{rs.tenant, rid, rt, param, s, strings.ToLower(s)})
+		add(asString(v))
 	}
+}
+
+// stringParts are the text-bearing fields of HumanName and Address, the complex
+// types a string search param (Patient.name, Patient.address) can point at.
+var stringParts = []string{
+	"family", "given", "prefix", "suffix", "text", // HumanName
+	"line", "city", "district", "state", "postalCode", "country", // Address
 }
 
 // ─── sp_token ─────────────────────────────────────────────────────────────────
