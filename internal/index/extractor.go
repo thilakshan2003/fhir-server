@@ -191,13 +191,28 @@ func (e *Extractor) appendParam(rs *RowSet, resourceType, resourceID string, res
 // becomes one row; a complex value (HumanName, Address) becomes one row per
 // text part listed in stringParts.
 func appendString(rs *RowSet, rt, rid, param string, vals []any) {
-	// add buffers one row, skipping empty strings.
+	seen := map[string]struct{}{}
+	// add buffers one row, skipping empty and already-seen strings. Complex values
+	// fan out into many rows, so the row cap is enforced here rather than only
+	// between params in Extract.
 	add := func(s string) {
-		if s != "" {
-			rs.spString = append(rs.spString, []any{rs.tenant, rid, rt, param, s, strings.ToLower(s)})
+		if s == "" {
+			return
 		}
+		if _, dup := seen[s]; dup {
+			return
+		}
+		if rs.atLimit() {
+			rs.LimitHit = true
+			return
+		}
+		seen[s] = struct{}{}
+		rs.spString = append(rs.spString, []any{rs.tenant, rid, rt, param, s, strings.ToLower(s)})
 	}
 	for _, v := range vals {
+		if rs.LimitHit {
+			return
+		}
 		if m, ok := v.(map[string]any); ok {
 			// HumanName / Address: index each text part (family, given, city, ...)
 			// as its own row, so a search matches if any one part matches.

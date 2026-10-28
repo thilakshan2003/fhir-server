@@ -54,3 +54,55 @@ func TestAppendString_ComplexType(t *testing.T) {
 		t.Errorf("value_lower = %v, want reyes", lower)
 	}
 }
+
+// The same text under one param is stored once: a family shared by two names,
+// or Address.text equal to city, must not produce duplicate rows.
+func TestAppendString_DedupesValues(t *testing.T) {
+	rs := NewRowSet("t", 0)
+	appendString(rs, "Patient", "p1", "name", []any{
+		map[string]any{"family": "Reyes", "given": []any{"Daniel"}},
+		map[string]any{"family": "Reyes", "given": []any{"Dan", "Daniel"}},
+	})
+	appendString(rs, "Patient", "p1", "address", []any{
+		map[string]any{"text": "Boston", "city": "Boston"},
+	})
+
+	var got [][2]string
+	for _, r := range rs.spString {
+		got = append(got, [2]string{r[3].(string), r[4].(string)})
+	}
+	want := [][2]string{
+		{"name", "Reyes"}, {"name", "Daniel"}, {"name", "Dan"},
+		{"address", "Boston"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("rows = %v, want %v", got, want)
+	}
+}
+
+// One param expanding into many rows must stop at maxRows and flag LimitHit,
+// not only be checked between params.
+func TestAppendString_EnforcesRowCap(t *testing.T) {
+	rs := NewRowSet("t", 3)
+	appendString(rs, "Patient", "p1", "name", []any{
+		map[string]any{"family": "A", "given": []any{"B", "C", "D", "E"}},
+		map[string]any{"family": "F"},
+	})
+	if got := len(rs.spString); got != 3 {
+		t.Fatalf("rows = %d, want 3 (the cap)", got)
+	}
+	if !rs.LimitHit {
+		t.Error("LimitHit not set after hitting the cap")
+	}
+}
+
+// A null entry in a name's given array must not produce an empty or "<nil>" row.
+func TestAppendString_NullInArray(t *testing.T) {
+	rs := NewRowSet("t", 0)
+	appendString(rs, "Patient", "p1", "name", []any{
+		map[string]any{"family": "Reyes", "given": []any{"Daniel", nil}},
+	})
+	if got := len(rs.spString); got != 2 {
+		t.Fatalf("rows = %v, want 2 (Reyes, Daniel)", rs.spString)
+	}
+}
