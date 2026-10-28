@@ -106,3 +106,25 @@ func TestAppendString_NullInArray(t *testing.T) {
 		t.Fatalf("rows = %v, want 2 (Reyes, Daniel)", rs.spString)
 	}
 }
+
+// A complex value with none of the known text parts (e.g. an Identifier behind a
+// custom string param) must still be indexed, as it was before parts were split.
+func TestAppendString_UnknownMapFallsBack(t *testing.T) {
+	rs := NewRowSet("t", 0)
+	appendString(rs, "Patient", "p1", "custom", []any{
+		map[string]any{"system": "http://example.org/mrn", "value": "MRN-1"},
+	})
+	if got := len(rs.spString); got != 1 {
+		t.Fatalf("rows = %v, want 1 fallback row", rs.spString)
+	}
+	if v := rs.spString[0][4].(string); v != asString(map[string]any{"system": "http://example.org/mrn", "value": "MRN-1"}) {
+		t.Errorf("value_exact = %q, want the asString rendering", v)
+	}
+
+	// A HumanName must NOT also get the fallback row.
+	rs = NewRowSet("t", 0)
+	appendString(rs, "Patient", "p1", "name", []any{map[string]any{"family": "Reyes", "use": "official"}})
+	if got := len(rs.spString); got != 1 {
+		t.Fatalf("HumanName rows = %v, want only the family row", rs.spString)
+	}
+}

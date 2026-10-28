@@ -216,17 +216,24 @@ func appendString(rs *RowSet, rt, rid, param string, vals []any) {
 		if m, ok := v.(map[string]any); ok {
 			// HumanName / Address: index each text part (family, given, city, ...)
 			// as its own row, so a search matches if any one part matches.
+			matched := false
 			for _, k := range stringParts {
 				switch p := m[k].(type) {
 				case string:
+					matched = true
 					add(p)
 				case []any:
+					matched = true
 					for _, e := range p {
 						add(asString(e))
 					}
 				}
 			}
-			continue
+			if matched {
+				continue
+			}
+			// Any other object (e.g. an Identifier behind a custom param) has none
+			// of those parts; keep indexing its text as before rather than dropping it.
 		}
 		add(asString(v))
 	}
